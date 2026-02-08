@@ -12,6 +12,15 @@ This repo intentionally starts minimal.
 
 ## Run
 
+With Poetry (recommended):
+
+```bash
+poetry install
+poetry run uvicorn app.main:app --reload
+```
+
+With pip:
+
 ```bash
 pip install -e .
 uvicorn app.main:app --reload
@@ -20,5 +29,6 @@ uvicorn app.main:app --reload
 ## Test
 
 ```bash
-pytest
+poetry run pytest
+# or, with venv activated: pytest
 ```
