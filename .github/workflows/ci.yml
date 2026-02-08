@@ -23,12 +23,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install Poetry
-        uses: snok/install-poetry@v1
+        uses: abatilo/actions-poetry@v3
         with:
-          # snok/install-poetry has no native Poetry 2.x support; install from git (2.0.1 ref)
-          installation-arguments: --git https://github.com/python-poetry/poetry.git@bd500dd3bdfaec3de6894144c9cedb3a9358be84
-          virtualenvs-create: true
-          virtualenvs-in-project: true
+          poetry-version: "2.3.2"
 
       - name: Install dependencies
         run: poetry install
