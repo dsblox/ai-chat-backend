@@ -12,23 +12,29 @@ This repo intentionally starts minimal.
 
 ## Run
 
-With Poetry (recommended):
+Default dev run script:
+
+```bash
+./scripts/run-dev.sh
+```
+
+With Poetry:
 
 ```bash
 poetry install
-poetry run uvicorn app.main:app --reload
+poetry run ./scripts/run-dev.sh
 ```
 
-With pip:
+With pip/venv:
 
 ```bash
-pip install -e .
-uvicorn app.main:app --reload
+pip install -e ".[dev]"
+./scripts/run-dev.sh
 ```
 
 ## Test
 
 ```bash
 poetry run pytest
-# or, with venv activated: pytest
+# or, with venv activated: python -m pytest
 ```

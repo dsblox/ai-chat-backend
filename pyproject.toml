@@ -12,6 +12,12 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.2,<10.0.0",
+    "httpx>=0.28.1,<0.29.0",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
