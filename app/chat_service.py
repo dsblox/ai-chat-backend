@@ -9,8 +9,20 @@ class ChatService:
         self._llm = llm
 
     def chat(self, request: ChatRequest) -> ChatResponse:
-        conversation_id = request.conversation_id or str(uuid.uuid4())
-        reply = self._llm.generate_reply(request.message)
+        # Keep compatibility with simple one-arg test doubles used in tests.
+        try:
+            reply = self._llm.generate_reply(
+                request.message,
+                conversation_id=request.conversation_id,
+            )
+        except TypeError:
+            reply = self._llm.generate_reply(request.message)
+
+        conversation_id = (
+            request.conversation_id
+            or reply.conversation_id
+            or str(uuid.uuid4())
+        )
         return ChatResponse(
             conversation_id=conversation_id,
             message=reply.message,

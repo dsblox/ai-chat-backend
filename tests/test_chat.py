@@ -85,3 +85,54 @@ def test_chat_can_opt_in_to_openai_llm_when_requested(monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert data["message"] == "openai-style reply"
+
+
+def test_chat_openai_conversation_id_is_returned_and_reused(monkeypatch):
+    class FakeSessionLLM:
+        def __init__(self) -> None:
+            self._calls_by_conversation: dict[str, int] = {}
+            self._counter = 0
+
+        def generate_reply(
+            self,
+            user_message: str,
+            conversation_id: str | None = None,
+        ) -> LLMReply:
+            if conversation_id is None:
+                self._counter += 1
+                conversation_id = f"openai-session-{self._counter}"
+            self._calls_by_conversation[conversation_id] = (
+                self._calls_by_conversation.get(conversation_id, 0) + 1
+            )
+            call_number = self._calls_by_conversation[conversation_id]
+            return LLMReply(
+                message=f"{conversation_id}#{call_number}:{user_message}",
+                input_tokens=1,
+                output_tokens=1,
+                conversation_id=conversation_id,
+            )
+
+    fake = FakeSessionLLM()
+    monkeypatch.setattr("app.main.make_llm", lambda: fake)
+
+    first = client.post(
+        "/chat",
+        json={"message": "hello", "metadata": {"llm": "openai"}},
+    )
+    assert first.status_code == 200
+    first_data = first.json()
+    assert first_data["conversation_id"] == "openai-session-1"
+    assert first_data["message"] == "openai-session-1#1:hello"
+
+    second = client.post(
+        "/chat",
+        json={
+            "message": "again",
+            "conversation_id": first_data["conversation_id"],
+            "metadata": {"llm": "openai"},
+        },
+    )
+    assert second.status_code == 200
+    second_data = second.json()
+    assert second_data["conversation_id"] == "openai-session-1"
+    assert second_data["message"] == "openai-session-1#2:again"
