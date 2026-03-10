@@ -10,6 +10,15 @@ class LLMReply:
     conversation_id: str | None = None
 
 
+@dataclass
+class ContextPolicy:
+    max_cost_dollars: float
+    summarization_prompt: str
+    cost_per_input_token: float
+    cost_per_output_token: float
+    keep_recent_messages: int = 6
+
+
 class LLMClient(Protocol):
     def generate_reply(
         self,

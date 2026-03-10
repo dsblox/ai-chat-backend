@@ -2,26 +2,36 @@
 
 import os
 import uuid
+from dataclasses import dataclass, field
 
 from openai import OpenAI
 
-from app.llm import LLMReply
+from app.llm import ContextPolicy, LLMReply
+
+
+@dataclass
+class SessionState:
+    messages: list[dict[str, str]] = field(default_factory=list)
+    summary: str | None = None
+    summary_up_to: int = 0
 
 
 class OpenAILLMClient:
     """Calls OpenAI chat completions API. Requires OPENAI_API_KEY in env."""
 
     # Shared in-memory transcript storage across client instances in-process.
-    _sessions: dict[str, list[dict[str, str]]] = {}
+    _sessions: dict[str, SessionState] = {}
 
     def __init__(
         self,
         *,
         api_key: str | None = None,
         model: str | None = None,
+        context_policy: ContextPolicy | None = None,
     ) -> None:
         self._client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY", ""))
         self._model = model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        self._policy = context_policy
 
     def generate_reply(
         self,
@@ -29,12 +39,25 @@ class OpenAILLMClient:
         conversation_id: str | None = None,
     ) -> LLMReply:
         effective_conversation_id = conversation_id or str(uuid.uuid4())
-        transcript = self._sessions.get(effective_conversation_id, [])
-        messages = [*transcript, {"role": "user", "content": user_message}]
+        state = self._sessions.get(
+            effective_conversation_id, SessionState()
+        )
+
+        context = self._build_context(state, user_message)
+
+        if self._policy is not None:
+            cost = self._estimate_input_cost(context)
+            unsummarized_count = len(state.messages) - state.summary_up_to
+            if (
+                cost > self._policy.max_cost_dollars
+                and unsummarized_count > self._policy.keep_recent_messages
+            ):
+                state = self._summarize(state)
+                context = self._build_context(state, user_message)
 
         response = self._client.chat.completions.create(
             model=self._model,
-            messages=messages,
+            messages=context,
         )
         choice = response.choices[0] if response.choices else None
         content = choice.message.content if choice and choice.message else ""
@@ -43,17 +66,66 @@ class OpenAILLMClient:
         output_tokens = usage.completion_tokens if usage else 0
 
         # Persist turn for follow-up calls on the same conversation_id.
-        self._sessions[effective_conversation_id] = [
-            *transcript,
-            {"role": "user", "content": user_message},
-            {"role": "assistant", "content": content or ""},
-        ]
+        state.messages.append({"role": "user", "content": user_message})
+        state.messages.append({"role": "assistant", "content": content or ""})
+        self._sessions[effective_conversation_id] = state
 
         return LLMReply(
             message=content or "",
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             conversation_id=effective_conversation_id,
+        )
+
+    def _build_context(
+        self, state: SessionState, user_message: str
+    ) -> list[dict[str, str]]:
+        context: list[dict[str, str]] = []
+        if state.summary is not None:
+            context.append(
+                {
+                    "role": "system",
+                    "content": f"Summary of earlier conversation:\n{state.summary}",
+                }
+            )
+        context.extend(state.messages[state.summary_up_to:])
+        context.append({"role": "user", "content": user_message})
+        return context
+
+    def _estimate_input_cost(self, messages: list[dict[str, str]]) -> float:
+        assert self._policy is not None
+        total_chars = sum(len(m.get("content", "")) for m in messages)
+        estimated_tokens = total_chars / 4
+        return estimated_tokens * self._policy.cost_per_input_token
+
+    def _summarize(self, state: SessionState) -> SessionState:
+        assert self._policy is not None
+        keep = self._policy.keep_recent_messages
+        messages_to_summarize = state.messages[state.summary_up_to:-keep] if keep > 0 else state.messages[state.summary_up_to:]
+
+        summarization_messages: list[dict[str, str]] = [
+            {"role": "system", "content": self._policy.summarization_prompt},
+        ]
+        summarization_messages.extend(messages_to_summarize)
+        if state.summary is not None:
+            summarization_messages.append(
+                {"role": "system", "content": f"Previous summary: {state.summary}"}
+            )
+
+        response = self._client.chat.completions.create(
+            model=self._model,
+            messages=summarization_messages,
+        )
+        choice = response.choices[0] if response.choices else None
+        new_summary = (
+            choice.message.content if choice and choice.message else ""
+        ) or ""
+
+        new_summary_up_to = len(state.messages) - keep if keep > 0 else len(state.messages)
+        return SessionState(
+            messages=state.messages,
+            summary=new_summary,
+            summary_up_to=new_summary_up_to,
         )
 
     def clear_session(self, conversation_id: str) -> bool:
