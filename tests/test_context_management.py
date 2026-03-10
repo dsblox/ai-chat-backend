@@ -187,3 +187,113 @@ def test_no_summarization_without_policy():
 
     # Exactly 10 calls — one per generate_reply, no summarization.
     assert client._client.chat.completions.create.call_count == 10
+
+
+def test_cumulative_tokens_increase_with_each_message():
+    """Total token counts should accumulate across messages."""
+    policy = _make_policy(max_cost_dollars=999.0)
+    client = _make_client(policy)
+
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r1", input_tokens=10, output_tokens=5
+    )
+    reply1 = client.generate_reply("hello", conversation_id="c1")
+    assert reply1.input_tokens == 10
+    assert reply1.output_tokens == 5
+    assert reply1.total_input_tokens == 10
+    assert reply1.total_output_tokens == 5
+
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r2", input_tokens=20, output_tokens=8
+    )
+    reply2 = client.generate_reply("world", conversation_id="c1")
+    assert reply2.input_tokens == 20
+    assert reply2.output_tokens == 8
+    assert reply2.total_input_tokens == 30
+    assert reply2.total_output_tokens == 13
+
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r3", input_tokens=15, output_tokens=7
+    )
+    reply3 = client.generate_reply("foo", conversation_id="c1")
+    assert reply3.input_tokens == 15
+    assert reply3.output_tokens == 7
+    assert reply3.total_input_tokens == 45
+    assert reply3.total_output_tokens == 20
+
+
+def test_summarization_tokens_included_in_cumulative_totals():
+    """Summarization call tokens should be counted in cumulative totals."""
+    policy = _make_policy(max_cost_dollars=0.0000001, keep_recent_messages=2)
+    client = _make_client(policy)
+
+    # First two calls — no summarization.
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r1", input_tokens=10, output_tokens=5
+    )
+    client.generate_reply("msg1", conversation_id="c1")
+
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r2", input_tokens=12, output_tokens=6
+    )
+    client.generate_reply("msg2", conversation_id="c1")
+
+    # Third call triggers summarization (unsummarized=4 > keep=2, cost exceeded).
+    client._client.chat.completions.create.side_effect = [
+        _mock_completion("summary", input_tokens=30, output_tokens=15),  # summarization
+        _mock_completion("r3", input_tokens=8, output_tokens=4),         # normal reply
+    ]
+    reply3 = client.generate_reply("msg3", conversation_id="c1")
+
+    # Totals should include: msg1(10+5) + msg2(12+6) + summarize(30+15) + msg3(8+4)
+    assert reply3.total_input_tokens == 10 + 12 + 30 + 8
+    assert reply3.total_output_tokens == 5 + 6 + 15 + 4
+
+
+def test_clear_session_resets_cumulative_counts():
+    """After clear_session, a new session starts with zero cumulative counts."""
+    policy = _make_policy(max_cost_dollars=999.0)
+    client = _make_client(policy)
+
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r1", input_tokens=10, output_tokens=5
+    )
+    reply1 = client.generate_reply("hello", conversation_id="c1")
+    assert reply1.total_input_tokens == 10
+    assert reply1.total_output_tokens == 5
+
+    assert client.clear_session("c1") is True
+    assert "c1" not in client._sessions
+
+    # New message on same conversation_id should start fresh.
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r2", input_tokens=7, output_tokens=3
+    )
+    reply2 = client.generate_reply("hello again", conversation_id="c1")
+    assert reply2.total_input_tokens == 7
+    assert reply2.total_output_tokens == 3
+
+
+def test_reply_totals_match_session_running_totals():
+    """LLMReply total fields should match the session's running totals exactly."""
+    policy = _make_policy(max_cost_dollars=999.0)
+    client = _make_client(policy)
+
+    expected_total_in = 0
+    expected_total_out = 0
+    for i in range(5):
+        in_tok = (i + 1) * 3
+        out_tok = (i + 1) * 2
+        expected_total_in += in_tok
+        expected_total_out += out_tok
+        client._client.chat.completions.create.return_value = _mock_completion(
+            f"r{i}", input_tokens=in_tok, output_tokens=out_tok
+        )
+        reply = client.generate_reply(f"msg{i}", conversation_id="c1")
+        assert reply.total_input_tokens == expected_total_in
+        assert reply.total_output_tokens == expected_total_out
+
+    # Verify session state matches the last reply's totals.
+    state = client._sessions["c1"]
+    assert state.total_input_tokens == expected_total_in
+    assert state.total_output_tokens == expected_total_out

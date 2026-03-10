@@ -31,4 +31,8 @@ class ChatService:
                 input_tokens=reply.input_tokens,
                 output_tokens=reply.output_tokens,
             ),
+            total_usage=Usage(
+                input_tokens=reply.total_input_tokens,
+                output_tokens=reply.total_output_tokens,
+            ),
         )

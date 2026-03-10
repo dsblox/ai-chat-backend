@@ -22,6 +22,8 @@ def test_chat_new_conversation():
     assert data["sources"] == []
     assert data["usage"]["input_tokens"] == 0
     assert data["usage"]["output_tokens"] == 0
+    assert data["total_usage"]["input_tokens"] == 0
+    assert data["total_usage"]["output_tokens"] == 0
 
 
 def test_chat_existing_conversation():
@@ -36,6 +38,8 @@ def test_chat_existing_conversation():
     assert data["sources"] == []
     assert data["usage"]["input_tokens"] == 0
     assert data["usage"]["output_tokens"] == 0
+    assert data["total_usage"]["input_tokens"] == 0
+    assert data["total_usage"]["output_tokens"] == 0
 
 
 def test_chat_empty_message_rejected():
@@ -91,6 +95,7 @@ def test_chat_openai_conversation_id_is_returned_and_reused(monkeypatch):
     class FakeSessionLLM:
         def __init__(self) -> None:
             self._calls_by_conversation: dict[str, int] = {}
+            self._totals: dict[str, tuple[int, int]] = {}
             self._counter = 0
 
         def generate_reply(
@@ -104,17 +109,24 @@ def test_chat_openai_conversation_id_is_returned_and_reused(monkeypatch):
             self._calls_by_conversation[conversation_id] = (
                 self._calls_by_conversation.get(conversation_id, 0) + 1
             )
+            prev_in, prev_out = self._totals.get(conversation_id, (0, 0))
+            total_in = prev_in + 1
+            total_out = prev_out + 1
+            self._totals[conversation_id] = (total_in, total_out)
             call_number = self._calls_by_conversation[conversation_id]
             return LLMReply(
                 message=f"{conversation_id}#{call_number}:{user_message}",
                 input_tokens=1,
                 output_tokens=1,
                 conversation_id=conversation_id,
+                total_input_tokens=total_in,
+                total_output_tokens=total_out,
             )
 
         def clear_session(self, conversation_id: str) -> bool:
             if conversation_id in self._calls_by_conversation:
                 del self._calls_by_conversation[conversation_id]
+                self._totals.pop(conversation_id, None)
                 return True
             return False
 
@@ -129,6 +141,8 @@ def test_chat_openai_conversation_id_is_returned_and_reused(monkeypatch):
     first_data = first.json()
     assert first_data["conversation_id"] == "openai-session-1"
     assert first_data["message"] == "openai-session-1#1:hello"
+    assert first_data["total_usage"]["input_tokens"] == 1
+    assert first_data["total_usage"]["output_tokens"] == 1
 
     second = client.post(
         "/chat",
@@ -142,6 +156,8 @@ def test_chat_openai_conversation_id_is_returned_and_reused(monkeypatch):
     second_data = second.json()
     assert second_data["conversation_id"] == "openai-session-1"
     assert second_data["message"] == "openai-session-1#2:again"
+    assert second_data["total_usage"]["input_tokens"] == 2
+    assert second_data["total_usage"]["output_tokens"] == 2
 
 
 def test_reset_conversation_stub_returns_not_cleared():
@@ -156,6 +172,7 @@ def test_reset_conversation_openai_clears_session(monkeypatch):
     class FakeSessionLLM:
         def __init__(self) -> None:
             self._calls_by_conversation: dict[str, int] = {}
+            self._totals: dict[str, tuple[int, int]] = {}
             self._counter = 0
 
         def generate_reply(
@@ -169,17 +186,24 @@ def test_reset_conversation_openai_clears_session(monkeypatch):
             self._calls_by_conversation[conversation_id] = (
                 self._calls_by_conversation.get(conversation_id, 0) + 1
             )
+            prev_in, prev_out = self._totals.get(conversation_id, (0, 0))
+            total_in = prev_in + 1
+            total_out = prev_out + 1
+            self._totals[conversation_id] = (total_in, total_out)
             call_number = self._calls_by_conversation[conversation_id]
             return LLMReply(
                 message=f"{conversation_id}#{call_number}:{user_message}",
                 input_tokens=1,
                 output_tokens=1,
                 conversation_id=conversation_id,
+                total_input_tokens=total_in,
+                total_output_tokens=total_out,
             )
 
         def clear_session(self, conversation_id: str) -> bool:
             if conversation_id in self._calls_by_conversation:
                 del self._calls_by_conversation[conversation_id]
+                self._totals.pop(conversation_id, None)
                 return True
             return False
 
@@ -225,6 +249,7 @@ def test_reset_conversation_nonexistent_returns_not_cleared(monkeypatch):
     class FakeSessionLLM:
         def __init__(self) -> None:
             self._calls_by_conversation: dict[str, int] = {}
+            self._totals: dict[str, tuple[int, int]] = {}
             self._counter = 0
 
         def generate_reply(
@@ -238,17 +263,24 @@ def test_reset_conversation_nonexistent_returns_not_cleared(monkeypatch):
             self._calls_by_conversation[conversation_id] = (
                 self._calls_by_conversation.get(conversation_id, 0) + 1
             )
+            prev_in, prev_out = self._totals.get(conversation_id, (0, 0))
+            total_in = prev_in + 1
+            total_out = prev_out + 1
+            self._totals[conversation_id] = (total_in, total_out)
             call_number = self._calls_by_conversation[conversation_id]
             return LLMReply(
                 message=f"{conversation_id}#{call_number}:{user_message}",
                 input_tokens=1,
                 output_tokens=1,
                 conversation_id=conversation_id,
+                total_input_tokens=total_in,
+                total_output_tokens=total_out,
             )
 
         def clear_session(self, conversation_id: str) -> bool:
             if conversation_id in self._calls_by_conversation:
                 del self._calls_by_conversation[conversation_id]
+                self._totals.pop(conversation_id, None)
                 return True
             return False
 

@@ -8,6 +8,8 @@ class LLMReply:
     input_tokens: int
     output_tokens: int
     conversation_id: str | None = None
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
 
 
 @dataclass

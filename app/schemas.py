@@ -19,6 +19,7 @@ class ChatResponse(BaseModel):
     message: str
     sources: list = Field(default_factory=list)
     usage: Usage = Field(default_factory=Usage)
+    total_usage: Usage = Field(default_factory=Usage)
 
 
 class ResetResponse(BaseModel):
