@@ -24,6 +24,8 @@ def test_chat_new_conversation():
     assert data["usage"]["output_tokens"] == 0
     assert data["total_usage"]["input_tokens"] == 0
     assert data["total_usage"]["output_tokens"] == 0
+    assert data["cost"] == 0.0
+    assert data["total_cost"] == 0.0
 
 
 def test_chat_existing_conversation():
@@ -40,6 +42,8 @@ def test_chat_existing_conversation():
     assert data["usage"]["output_tokens"] == 0
     assert data["total_usage"]["input_tokens"] == 0
     assert data["total_usage"]["output_tokens"] == 0
+    assert data["cost"] == 0.0
+    assert data["total_cost"] == 0.0
 
 
 def test_chat_empty_message_rejected():
@@ -121,6 +125,8 @@ def test_chat_openai_conversation_id_is_returned_and_reused(monkeypatch):
                 conversation_id=conversation_id,
                 total_input_tokens=total_in,
                 total_output_tokens=total_out,
+                cost=0.001,
+                total_cost=call_number * 0.001,
             )
 
         def clear_session(self, conversation_id: str) -> bool:
@@ -143,6 +149,8 @@ def test_chat_openai_conversation_id_is_returned_and_reused(monkeypatch):
     assert first_data["message"] == "openai-session-1#1:hello"
     assert first_data["total_usage"]["input_tokens"] == 1
     assert first_data["total_usage"]["output_tokens"] == 1
+    assert first_data["cost"] == 0.001
+    assert first_data["total_cost"] == 0.001
 
     second = client.post(
         "/chat",
@@ -158,6 +166,8 @@ def test_chat_openai_conversation_id_is_returned_and_reused(monkeypatch):
     assert second_data["message"] == "openai-session-1#2:again"
     assert second_data["total_usage"]["input_tokens"] == 2
     assert second_data["total_usage"]["output_tokens"] == 2
+    assert second_data["cost"] == 0.001
+    assert second_data["total_cost"] == 0.002
 
 
 def test_reset_conversation_stub_returns_not_cleared():

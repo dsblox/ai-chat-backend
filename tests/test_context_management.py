@@ -297,3 +297,75 @@ def test_reply_totals_match_session_running_totals():
     state = client._sessions["c1"]
     assert state.total_input_tokens == expected_total_in
     assert state.total_output_tokens == expected_total_out
+
+
+def test_cost_computed_from_tokens_and_policy_rates():
+    """cost and total_cost should be derived from token counts and policy rates."""
+    policy = _make_policy(max_cost_dollars=999.0)
+    client = _make_client(policy)
+    in_rate = policy.cost_per_input_token    # 0.00000015
+    out_rate = policy.cost_per_output_token  # 0.0000006
+
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r1", input_tokens=100, output_tokens=50
+    )
+    reply1 = client.generate_reply("hello", conversation_id="c1")
+    expected_cost1 = 100 * in_rate + 50 * out_rate
+    assert reply1.cost == expected_cost1
+    assert reply1.total_cost == expected_cost1
+
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r2", input_tokens=200, output_tokens=80
+    )
+    reply2 = client.generate_reply("world", conversation_id="c1")
+    expected_cost2 = 200 * in_rate + 80 * out_rate
+    expected_total2 = (100 + 200) * in_rate + (50 + 80) * out_rate
+    assert reply2.cost == expected_cost2
+    assert reply2.total_cost == expected_total2
+
+
+def test_cost_includes_summarization_tokens():
+    """When summarization triggers, cost for that message includes summarization overhead."""
+    policy = _make_policy(max_cost_dollars=0.0000001, keep_recent_messages=2)
+    client = _make_client(policy)
+    in_rate = policy.cost_per_input_token
+    out_rate = policy.cost_per_output_token
+
+    # First two calls — no summarization.
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r1", input_tokens=10, output_tokens=5
+    )
+    client.generate_reply("msg1", conversation_id="c1")
+
+    client._client.chat.completions.create.return_value = _mock_completion(
+        "r2", input_tokens=12, output_tokens=6
+    )
+    client.generate_reply("msg2", conversation_id="c1")
+
+    # Third call triggers summarization.
+    client._client.chat.completions.create.side_effect = [
+        _mock_completion("summary", input_tokens=30, output_tokens=15),  # summarization
+        _mock_completion("r3", input_tokens=8, output_tokens=4),         # normal reply
+    ]
+    reply3 = client.generate_reply("msg3", conversation_id="c1")
+
+    # Per-message cost includes both summarization and normal call tokens.
+    expected_msg_cost = (8 + 30) * in_rate + (4 + 15) * out_rate
+    assert reply3.cost == expected_msg_cost
+
+    # Total cost includes all calls across the session.
+    expected_total = (10 + 12 + 30 + 8) * in_rate + (5 + 6 + 15 + 4) * out_rate
+    assert reply3.total_cost == expected_total
+
+
+def test_no_cost_without_policy():
+    """Without a policy, cost and total_cost should always be 0.0."""
+    client = _make_client(policy=None)
+
+    for i in range(3):
+        client._client.chat.completions.create.return_value = _mock_completion(
+            f"r{i}", input_tokens=100, output_tokens=50
+        )
+        reply = client.generate_reply(f"msg{i}", conversation_id="c1")
+        assert reply.cost == 0.0
+        assert reply.total_cost == 0.0

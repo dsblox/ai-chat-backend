@@ -47,6 +47,8 @@ class OpenAILLMClient:
 
         context = self._build_context(state, user_message)
 
+        sum_in = 0
+        sum_out = 0
         if self._policy is not None:
             cost = self._estimate_input_cost(context)
             unsummarized_count = len(state.messages) - state.summary_up_to
@@ -72,6 +74,19 @@ class OpenAILLMClient:
         state.total_input_tokens += input_tokens
         state.total_output_tokens += output_tokens
 
+        if self._policy:
+            msg_cost = (
+                (input_tokens + sum_in) * self._policy.cost_per_input_token
+                + (output_tokens + sum_out) * self._policy.cost_per_output_token
+            )
+            session_cost = (
+                state.total_input_tokens * self._policy.cost_per_input_token
+                + state.total_output_tokens * self._policy.cost_per_output_token
+            )
+        else:
+            msg_cost = 0.0
+            session_cost = 0.0
+
         # Persist turn for follow-up calls on the same conversation_id.
         state.messages.append({"role": "user", "content": user_message})
         state.messages.append({"role": "assistant", "content": content or ""})
@@ -84,6 +99,8 @@ class OpenAILLMClient:
             conversation_id=effective_conversation_id,
             total_input_tokens=state.total_input_tokens,
             total_output_tokens=state.total_output_tokens,
+            cost=msg_cost,
+            total_cost=session_cost,
         )
 
     def _build_context(

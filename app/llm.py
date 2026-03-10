@@ -10,6 +10,8 @@ class LLMReply:
     conversation_id: str | None = None
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    cost: float = 0.0
+    total_cost: float = 0.0
 
 
 @dataclass

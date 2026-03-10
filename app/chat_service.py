@@ -35,4 +35,6 @@ class ChatService:
                 input_tokens=reply.total_input_tokens,
                 output_tokens=reply.total_output_tokens,
             ),
+            cost=reply.cost,
+            total_cost=reply.total_cost,
         )
