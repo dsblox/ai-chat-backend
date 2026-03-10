@@ -112,6 +112,12 @@ def test_chat_openai_conversation_id_is_returned_and_reused(monkeypatch):
                 conversation_id=conversation_id,
             )
 
+        def clear_session(self, conversation_id: str) -> bool:
+            if conversation_id in self._calls_by_conversation:
+                del self._calls_by_conversation[conversation_id]
+                return True
+            return False
+
     fake = FakeSessionLLM()
     monkeypatch.setattr("app.main.make_llm", lambda: fake)
 
@@ -136,3 +142,121 @@ def test_chat_openai_conversation_id_is_returned_and_reused(monkeypatch):
     second_data = second.json()
     assert second_data["conversation_id"] == "openai-session-1"
     assert second_data["message"] == "openai-session-1#2:again"
+
+
+def test_reset_conversation_stub_returns_not_cleared():
+    response = client.delete("/conversations/some-id")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["conversation_id"] == "some-id"
+    assert data["cleared"] is False
+
+
+def test_reset_conversation_openai_clears_session(monkeypatch):
+    class FakeSessionLLM:
+        def __init__(self) -> None:
+            self._calls_by_conversation: dict[str, int] = {}
+            self._counter = 0
+
+        def generate_reply(
+            self,
+            user_message: str,
+            conversation_id: str | None = None,
+        ) -> LLMReply:
+            if conversation_id is None:
+                self._counter += 1
+                conversation_id = f"openai-session-{self._counter}"
+            self._calls_by_conversation[conversation_id] = (
+                self._calls_by_conversation.get(conversation_id, 0) + 1
+            )
+            call_number = self._calls_by_conversation[conversation_id]
+            return LLMReply(
+                message=f"{conversation_id}#{call_number}:{user_message}",
+                input_tokens=1,
+                output_tokens=1,
+                conversation_id=conversation_id,
+            )
+
+        def clear_session(self, conversation_id: str) -> bool:
+            if conversation_id in self._calls_by_conversation:
+                del self._calls_by_conversation[conversation_id]
+                return True
+            return False
+
+    fake = FakeSessionLLM()
+    monkeypatch.setattr("app.main.make_llm", lambda: fake)
+
+    # Build up a session with two messages.
+    first = client.post(
+        "/chat",
+        json={"message": "hello", "metadata": {"llm": "openai"}},
+    )
+    conv_id = first.json()["conversation_id"]
+
+    client.post(
+        "/chat",
+        json={
+            "message": "again",
+            "conversation_id": conv_id,
+            "metadata": {"llm": "openai"},
+        },
+    )
+
+    # Clear the session.
+    reset = client.delete(f"/conversations/{conv_id}?llm=openai")
+    assert reset.status_code == 200
+    reset_data = reset.json()
+    assert reset_data["conversation_id"] == conv_id
+    assert reset_data["cleared"] is True
+
+    # Next message on same conversation_id should show call #1 (counter reset).
+    third = client.post(
+        "/chat",
+        json={
+            "message": "fresh",
+            "conversation_id": conv_id,
+            "metadata": {"llm": "openai"},
+        },
+    )
+    assert third.json()["message"] == f"{conv_id}#1:fresh"
+
+
+def test_reset_conversation_nonexistent_returns_not_cleared(monkeypatch):
+    class FakeSessionLLM:
+        def __init__(self) -> None:
+            self._calls_by_conversation: dict[str, int] = {}
+            self._counter = 0
+
+        def generate_reply(
+            self,
+            user_message: str,
+            conversation_id: str | None = None,
+        ) -> LLMReply:
+            if conversation_id is None:
+                self._counter += 1
+                conversation_id = f"openai-session-{self._counter}"
+            self._calls_by_conversation[conversation_id] = (
+                self._calls_by_conversation.get(conversation_id, 0) + 1
+            )
+            call_number = self._calls_by_conversation[conversation_id]
+            return LLMReply(
+                message=f"{conversation_id}#{call_number}:{user_message}",
+                input_tokens=1,
+                output_tokens=1,
+                conversation_id=conversation_id,
+            )
+
+        def clear_session(self, conversation_id: str) -> bool:
+            if conversation_id in self._calls_by_conversation:
+                del self._calls_by_conversation[conversation_id]
+                return True
+            return False
+
+    fake = FakeSessionLLM()
+    monkeypatch.setattr("app.main.make_llm", lambda: fake)
+
+    response = client.delete("/conversations/does-not-exist?llm=openai")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["conversation_id"] == "does-not-exist"
+    assert data["cleared"] is False

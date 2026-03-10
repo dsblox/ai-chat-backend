@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.chat_service import ChatService
 from app.llm import StubLLMClient
 from app.llm_factory import make_llm
-from app.schemas import ChatRequest, ChatResponse
+from app.schemas import ChatRequest, ChatResponse, ResetResponse
 
 # Load .env from backend project root (parent of app/), regardless of cwd
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -43,3 +43,16 @@ def chat(request: ChatRequest) -> ChatResponse:
 
     service = ChatService(llm=llm)
     return service.chat(request)
+
+
+@app.delete("/conversations/{conversation_id}", response_model=ResetResponse)
+def reset_conversation(
+    conversation_id: str,
+    llm: str | None = None,
+) -> ResetResponse:
+    if llm == "openai":
+        client = make_llm()
+    else:
+        client = StubLLMClient()
+    result = client.clear_session(conversation_id)
+    return ResetResponse(conversation_id=conversation_id, cleared=result)

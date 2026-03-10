@@ -55,3 +55,9 @@ class OpenAILLMClient:
             output_tokens=output_tokens,
             conversation_id=effective_conversation_id,
         )
+
+    def clear_session(self, conversation_id: str) -> bool:
+        if conversation_id in self._sessions:
+            del self._sessions[conversation_id]
+            return True
+        return False
